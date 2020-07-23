@@ -131,6 +131,10 @@ class MultiheadAttention(nn.Module):
         attn_weights = torch.bmm(q, k.transpose(1, 2))
         assert list(attn_weights.size()) == [bsz * self.num_heads, tgt_len, src_len]
 
+        print ('attn_weights:', attn_weights.size())
+        print (attn_weights)
+        assert False
+
         if attn_mask is not None:
             attn_weights.masked_fill_(
                 attn_mask.unsqueeze(0),

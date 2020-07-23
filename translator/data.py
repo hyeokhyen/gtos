@@ -189,6 +189,7 @@ def batchify(data, vocabs, unk_rate=0.):
     _cp_seq = ListsToTensor([ x['cp_seq'] for x in data], vocabs['predictable_token'], local_token2idx)
 
     ret = {
+        'graph_len': np.amax([len(x['graph']) for x in data]),
         'concept': _conc,
         'concept_char': _conc_char,
         'concept_depth': _depth,
@@ -226,12 +227,15 @@ class DataLoader(object):
 
         if self.train:
             random.shuffle(idx)
-            idx.sort(key = lambda x: len(self.data[x]))
+
+            #idx.sort(key = lambda x: len(self.data[x]))
+            idx.sort(key = lambda x: -len(self.data[x]))
 
         batches = []
         num_tokens, batch = 0, []
         for i in idx:
             num_tokens += len(self.data[i])
+            #print (len(self.data[i]))
             batch.append(self.data[i])
             if num_tokens >= self.batch_size or len(batch)>256:
                 batches.append(batch)
@@ -248,7 +252,14 @@ class DataLoader(object):
             assert ok, "not connected"
             tok = graph.target
             cp_seq, token2idx, idx2token = self.lex_map.get(concept, self.vocabs['predictable_token'])
-            item = {'concept': concept,
+
+            if 0:
+              print ('graph:', len(graph))
+              print ('concept:', len(concept))
+              print ('----------------------------')
+
+            item = {'graph': graph,
+                    'concept': concept,
                     'depth': depth,
                     'relation': relation,
                     'token': tok,
@@ -295,9 +306,19 @@ if __name__ == '__main__':
     lexical_mapping = LexicalMap()
 
     train_data = DataLoader(vocabs, lexical_mapping, args.train_data, args.train_batch_size, for_train=True)
+
+    print ('max_graph_len:', np.amax([len(x) for x in train_data.data]))
+    assert False
+
     epoch_idx = 0
     batch_idx = 0
     last = 0
+
+    input_size = 0
+    input_char_size = 0
+    output_size = 0
+    output_char_size = 0
+
     while True:
         st = time.time()
         for d in train_data:
@@ -311,6 +332,30 @@ if __name__ == '__main__':
             print (bsz, c_len*bsz, t_len * bsz) 
             #print (d['relation_bank'].size())
             #print (d['relation'].size())
+            if 0:
+              if input_size < d['concept'].size()[0]:
+                input_size = d['concept'].size()[0]
+              if input_char_size < d['concept_char'].size()[0]:
+                input_char_size = d['concept_char'].size()[0]
+              
+              if output_size < d['token_in'].size()[0]:
+                output_size = d['token_in'].size()[0]
+              if output_char_size < d['token_char_in'].size()[0]:
+                output_char_size = d['token_char_in'].size()[0]
+            else:
+              input_size = d['concept'].size()[0]
+              input_char_size = d['concept_char'].size()[0]
+              output_size = d['token_in'].size()[0]
+              output_char_size = d['token_char_in'].size()[0]
+
+            print ('graph_len:', d['graph_len'])
+            print ('input_size:', input_size)
+            print ('input_char_size:', input_char_size)
+            print ('output_size:', output_size)
+            print ('output_char_size:', output_char_size)
+            print (input_size**2 + output_size)
+            
+            print ('----------------------------------')
 
             #_back_to_txt_for_check(d['concept'], vocabs['concept'])
             #for x in d['concept_depth'].t().tolist():

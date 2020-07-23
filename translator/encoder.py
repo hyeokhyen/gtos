@@ -93,6 +93,8 @@ class RelationEncoder(nn.Module):
         sorted_src_lengths, indices = torch.sort(src_lengths, descending=True)
         sorted_src_tokens = src_tokens.index_select(1, indices)
         ###
+        #print (sorted_src_tokens.size())
+        #assert False
         x = self.rel_embed(sorted_src_tokens)
         x = F.dropout(x, p=self.dropout, training=self.training)
 

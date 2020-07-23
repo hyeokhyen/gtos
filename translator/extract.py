@@ -2,6 +2,7 @@
 # coding: utf-8
 from collections import Counter
 from dependencyGraph import dependencyGraph
+import networkx as nx
 
 class IO:
 
@@ -61,6 +62,13 @@ class LexicalMap(object):
             return cp_seq
 
         new_tokens = set(cp for cp in cp_seq if vocab.token2idx(cp) == vocab.unk_idx)
+        if 0:
+            print('cp_seq:')
+            print(cp_seq)
+            print ('new_tokens:')
+            print (new_tokens)
+            assert False
+
         token2idx, idx2token = dict(), dict()
         nxt = vocab.size
         for x in new_tokens:
@@ -74,6 +82,9 @@ def read_file(filename):
     # read prepared file
     data = []
     for graph in IO.read(filename):
+        if 0:
+            print (nx.info(graph.graph))
+            assert False
         data.append(graph)
     print ('read from %s, %d instances'%(filename, len(data)))
     return data
@@ -106,10 +117,19 @@ if __name__ == "__main__":
 
     token_vocab, conc_vocab, predictable_token_vocab, rel_vocab = Counter(), Counter(), Counter(), Counter()
     for dep, head, concept, token in IO.read1(args.train_data):
+        print ('dep, head, concept, token:')
+        print (dep, head, concept, token)
         token_vocab.update(token)
         conc_vocab.update(concept)
         lexical_concepts = set(lexical_map.get(concept))
+        print ('lexical_concepts:')
+        print (lexical_concepts)
+        
         predictable = [ c for c in token if c not in lexical_concepts]
+        print('predictable:')
+        print(predictable)
+        assert False
+
         predictable_token_vocab.update(predictable)
         rel_vocab.update(dep)
         rel_vocab.update([r+'_r_' for r in dep])

@@ -51,7 +51,7 @@ def parse_config():
     parser.add_argument('--unk_rate', type=float)
 
     # IO
-    parser.add_argument('--epochs', type=int)
+    parser.add_argument('--total_train_steps', type=int)
     parser.add_argument('--train_data', type=str)
     parser.add_argument('--dev_data', type=str)
     parser.add_argument('--train_batch_size', type=int)
@@ -145,10 +145,10 @@ def main(args, local_rank):
     train_data_generator = mp.Process(target=data_proc, args=(train_data, queue)) 
     train_data_generator.start()
 
-
+    
     model.train()
     epoch = 0
-    while True:
+    while batches_acm < args.total_train_steps:
         batch = queue.get()
         if isinstance(batch, str):
             epoch += 1
@@ -156,6 +156,9 @@ def main(args, local_rank):
             continue
         batch = move_to_device(batch, device)
         loss = model(batch)
+        exit(0)
+
+
         loss_value = loss.item()
         if batches_acm > args.warmup_steps and loss_value > 5.*(loss_acm /batches_acm):
             discarded_batches_acm += 1
@@ -170,6 +173,7 @@ def main(args, local_rank):
         update_lr(optimizer, args.embed_dim, batches_acm, args.warmup_steps)
         optimizer.step()
         optimizer.zero_grad()
+    #------------
         if args.world_size == 1 or (dist.get_rank() == 0):
             if batches_acm % args.print_every == -1 % args.print_every:
                 print ('Train Epoch %d, Batch %d, Discarded Batch %d, loss %.3f'%(epoch, batches_acm, discarded_batches_acm, loss_acm/batches_acm))

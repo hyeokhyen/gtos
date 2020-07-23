@@ -2,6 +2,7 @@
 import re
 import random
 import networkx as nx
+from pprint import pprint
 
 class dependencyGraph(object):
 
@@ -9,6 +10,10 @@ class dependencyGraph(object):
         # transform graph from original conll format into our own data structure
         self.graph = nx.DiGraph()
         self.name2concept = tok
+        if 0:
+            print ('name2concept:')
+            print (self.name2concept)
+            assert False
         self.root = None
         for i, x in enumerate(head):
             if x==0:
@@ -54,11 +59,23 @@ class dependencyGraph(object):
     def collect_concepts_and_relations(self):
         g = self.graph
         nodes, depths, is_connected = self.bfs()
+        if 0:
+            print ('g:', len(g))
+            print('nodes:', len(nodes))
+            print('depths:', len(depths))
+            print('is_connected')
+            print(is_connected)
+            print ('-------------------------')
+
         concepts = [self.name2concept[n] for n in nodes] 
         relations = dict()
         for i, src in enumerate(nodes):
             relations[i] = dict()
             paths = nx.single_source_shortest_path(g, src)
+            if 0:
+                print (paths)
+                assert False
+
             for j, tgt in enumerate(nodes):
                 relations[i][j] = list()
                 assert tgt in paths
@@ -68,6 +85,13 @@ class dependencyGraph(object):
                 info['edge'] = [g[path[i]][path[i+1]]['label'] for i in range(len(path)-1)]
                 info['length'] = len(info['edge'])
                 relations[i][j].append(info)
+        if 0:
+            print ('concepts:')
+            print (concepts)
+            print ('relations:')
+            for key in relations:
+                pprint (relations[key])
+                assert False
 
         ## TODO, we just use the sequential order
         depths = nodes

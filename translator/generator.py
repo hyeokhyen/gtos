@@ -22,28 +22,42 @@ class Generator(nn.Module):
                 pretrained_file, device):
         super(Generator, self).__init__()
         self.vocabs = vocabs
+        self.embed_dim = embed_dim
+        self.embed_scale = math.sqrt(embed_dim)
+        self.dropout = dropout
+        self.device = device
+
+        # encoder
         self.concept_encoder = TokenEncoder(vocabs['concept'], vocabs['concept_char'],
                                           concept_char_dim, concept_dim, embed_dim,
                                           cnn_filters, char2concept_dim, dropout, pretrained_file)
+        self.concept_depth = nn.Embedding(256, embed_dim)
+
         self.relation_encoder = RelationEncoder(vocabs['relation'], rel_dim, embed_dim, rnn_hidden_size, rnn_num_layers, dropout)
+        
+        self.graph_encoder = GraphTransformer(graph_layers, embed_dim, ff_embed_dim, num_heads, dropout)
+
+        self.concept_embed_layer_norm = nn.LayerNorm(embed_dim)
+        self.probe_generator = nn.Linear(embed_dim, embed_dim)
+
+        # decoder
         self.token_encoder = TokenEncoder(vocabs['token'], vocabs['token_char'],
                         word_char_dim, word_dim, embed_dim,
                         cnn_filters, char2word_dim, dropout, pretrained_file)
 
-        self.graph_encoder = GraphTransformer(graph_layers, embed_dim, ff_embed_dim, num_heads, dropout)
         self.snt_encoder = Transformer(snt_layers, embed_dim, ff_embed_dim, num_heads, dropout, with_external=True)
-        
-        self.embed_dim = embed_dim
-        self.embed_scale = math.sqrt(embed_dim)
+
         self.token_position = SinusoidalPositionalEmbedding(embed_dim, device)
-        self.concept_depth = nn.Embedding(256, embed_dim)
+
         self.token_embed_layer_norm = nn.LayerNorm(embed_dim)
-        self.concept_embed_layer_norm = nn.LayerNorm(embed_dim)
         self.self_attn_mask = SelfAttentionMask(device)
+        #------------
+
+        
+
+
         self.decoder = DecodeLayer(vocabs, inference_layers, embed_dim, ff_embed_dim, num_heads, concept_dim, rel_dim, dropout)
-        self.dropout = dropout
-        self.probe_generator = nn.Linear(embed_dim, embed_dim)
-        self.device = device
+        
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -66,13 +80,17 @@ class Generator(nn.Module):
 
     def encode_step(self, inp):
         concept_repr = self.embed_scale * self.concept_encoder(inp['concept'], inp['concept_char']) + self.concept_depth(inp['concept_depth'])
+        
         concept_repr = self.concept_embed_layer_norm(concept_repr)
+
+
         concept_mask = torch.eq(inp['concept'], self.vocabs['concept'].padding_idx)
 
         relation = self.relation_encoder(inp['relation_bank'], inp['relation_length'])
         relation = relation.index_select(0, inp['relation'].contiguous().view(-1)).contiguous().view(*inp['relation'].size(), -1)
 
         concept_repr = self.graph_encoder(concept_repr, relation, self_padding_mask=concept_mask)
+        #------------
 
         probe = torch.tanh(self.probe_generator(concept_repr[:1]))
         concept_repr = concept_repr[1:]
@@ -111,10 +129,10 @@ class Generator(nn.Module):
         local_vocabs = mem_dict['local_idx2token']
         _, bsz, _ = graph_repr.size()
 
-        new_state_dict = {}
-
         token_repr = self.embed_scale * self.token_encoder(step_token, step_token_char) + self.token_position(step_token, offset)
         token_repr = self.token_embed_layer_norm(token_repr)
+
+        new_state_dict = {}
         for idx, layer in enumerate(self.snt_encoder.layers):
             name_i = 'token_repr_%d'%idx
             if name_i in state_dict:
@@ -125,6 +143,7 @@ class Generator(nn.Module):
 
             new_state_dict[name_i] = new_token_repr
             token_repr, _, _ = layer(token_repr, kv=new_token_repr, external_memories=graph_repr, external_padding_mask=graph_padding_mask)
+
         name = 'token_state'
         if name in state_dict:
             prev_token_state = state_dict[name]
@@ -132,6 +151,8 @@ class Generator(nn.Module):
         else:
             new_token_state = token_repr
         new_state_dict[name] = new_token_state
+        #------------------
+
         LL = self.decoder(probe, graph_repr, new_token_state, graph_padding_mask, None, None, copy_seq, work=True)
 
 
@@ -153,14 +174,34 @@ class Generator(nn.Module):
 
     def forward(self, data):
         concept_repr, concept_mask, probe = self.encode_step(data)
+        
+        # decoding
         token_repr = self.embed_scale * self.token_encoder(data['token_in'], data['token_char_in']) + self.token_position(data['token_in'])
         token_repr = self.token_embed_layer_norm(token_repr)
+
         token_repr = F.dropout(token_repr, p=self.dropout, training=self.training)
+
         token_mask = torch.eq(data['token_in'], self.vocabs['token'].padding_idx)
+
+
+        #--------
+
         attn_mask = self.self_attn_mask(data['token_in'].size(0))
+        if 1:
+            print ('token_in:', data['token_in'].size())
+            print (data['token_in'])
+            print ('token_repr:', token_repr.size())
+            print ('token_mask:', token_mask.size())
+            print ('attn_mask:', attn_mask.size())
+            print (attn_mask)
+            print ('----------------')
+            #assert False
+
         token_repr = self.snt_encoder(token_repr,
                                   self_padding_mask=token_mask, self_attn_mask=attn_mask,
                                   external_memories=concept_repr, external_padding_mask=concept_mask)
+        print ('token_repr:', token_repr.size())
+        assert False
         
         probe = probe.expand_as(token_repr) # tgt_len x bsz x embed_dim
         return self.decoder(probe, concept_repr, token_repr, concept_mask, token_mask, attn_mask, \

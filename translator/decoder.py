@@ -13,6 +13,7 @@ class TokenGenerator(nn.Module):
         self.alignment_layer = MultiheadAttention(embed_dim, 1, dropout, weights_dropout=False)
         self.alignment_layer_norm = nn.LayerNorm(embed_dim)
         self.transfer = nn.Linear(embed_dim, token_size)
+        #------------
         self.generator = nn.Linear(token_size, vocabs['predictable_token'].size)
         self.diverter = nn.Linear(token_size, 2)
         self.vocabs = vocabs
@@ -29,9 +30,10 @@ class TokenGenerator(nn.Module):
 
     def forward(self, outs, graph_state, graph_padding_mask, copy_seq,
                 target=None, work=False):
-        x, alignment_weight = self.alignment_layer(outs, graph_state, graph_state,
-                                                    key_padding_mask=graph_padding_mask,
-                                                    need_weights=True)
+        x, alignment_weight = self.alignment_layer(
+            outs, graph_state, graph_state,
+            key_padding_mask=graph_padding_mask,
+            need_weights=True)
         x = F.dropout(x, p=self.dropout, training=self.training)
         outs = self.alignment_layer_norm(outs + x)
 
@@ -40,17 +42,29 @@ class TokenGenerator(nn.Module):
         outs_token = F.dropout(outs_token, p=self.dropout, training=self.training)
 
         gen_gate, copy_gate = F.softmax(self.diverter(outs_token), -1).chunk(2, dim=-1)
-        
         probs = gen_gate * F.softmax(self.generator(outs_token), -1)
+
 
         tot_ext = 1 + copy_seq.max().item()
         vocab_size = probs.size(-1)
+        if 0:
+            print ('copy_seq:')
+            print (copy_seq)
+            print ('tot_ext:')
+            print (tot_ext)
+            print ('vocab_size:')
+            print (vocab_size)
+            assert False
 
         if tot_ext - vocab_size > 0:
             ext_probs = probs.new_zeros((1, 1, tot_ext - vocab_size)).expand(seq_len, bsz, -1)
             probs = torch.cat([probs, ext_probs], -1)
+        #---------------
 
         index = copy_seq.transpose(0, 1).contiguous().view(1, bsz, -1).expand(seq_len, -1, -1)
+        print ('index:')
+        print (index.size())
+        assert False
         
         copy_probs = (copy_gate * alignment_weight).view(seq_len, bsz, -1)
         probs = probs.scatter_add_(-1, index, copy_probs)
@@ -58,17 +72,21 @@ class TokenGenerator(nn.Module):
         
         if work:
             return ll
-
+        
+        #--- part of loss calculation
         token_loss = -ll.gather(dim=-1, index=target.unsqueeze(-1)).squeeze(-1)
         token_mask = torch.eq(target, self.vocabs['predictable_token'].padding_idx)
         token_loss = token_loss.masked_fill_(token_mask, 0.).sum(0)
         return token_loss
+        #---------------------------------
 
 class DecodeLayer(nn.Module):
 
     def __init__(self, vocabs, inference_layers, embed_dim, ff_embed_dim, num_heads, token_size, rel_size, dropout):
         super(DecodeLayer, self).__init__()
         self.inference_core = Transformer(inference_layers, embed_dim, ff_embed_dim, num_heads, dropout, with_external=True)
+
+        #-------------
         self.token_generator = TokenGenerator(vocabs, embed_dim, token_size, dropout)
         self.dropout = dropout
         self.vocabs = vocabs
